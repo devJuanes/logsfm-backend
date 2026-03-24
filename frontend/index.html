@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logs FM - Panel de Control</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app">
+    <!-- HEADER -->
+    <header class="header">
+      <div class="header-brand">
+        <div class="logo">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="14" stroke="#6366f1" stroke-width="2"/>
+            <circle cx="16" cy="16" r="6" fill="#6366f1"/>
+            <path d="M16 2 L16 6 M16 26 L16 30 M2 16 L6 16 M26 16 L30 16" stroke="#6366f1" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Logs FM</h1>
+          <span class="subtitle">Panel de Control</span>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-indicator" id="statusIndicator">
+          <span class="status-dot"></span>
+          <span class="status-text">Conectando...</span>
+        </div>
+        <div class="listeners">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+          </svg>
+          <span id="listenersCount">0</span> oyentes
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="main">
+      <!-- NOW PLAYING -->
+      <section class="now-playing card">
+        <h2 class="card-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          Reproduciendo Ahora
+        </h2>
+        <div class="now-playing-info" id="nowPlaying">
+          <div class="now-playing-empty">
+            <span>Esperando transmisión...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- VOLUME CONTROLS -->
+      <section class="volume-section card">
+        <h2 class="card-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+          Control de Volumen
+        </h2>
+        <div class="volume-controls">
+          <div class="volume-item">
+            <label>Master</label>
+            <div class="slider-container">
+              <input type="range" min="0" max="100" value="100" id="masterVolume" class="slider">
+              <span class="slider-value" id="masterVolumeValue">100%</span>
+            </div>
+          </div>
+          <div class="volume-item">
+            <label>Música</label>
+            <div class="slider-container">
+              <input type="range" min="0" max="100" value="100" id="musicVolume" class="slider">
+              <span class="slider-value" id="musicVolumeValue">100%</span>
+            </div>
+          </div>
+          <div class="volume-item">
+            <label>Micrófono</label>
+            <div class="slider-container">
+              <input type="range" min="0" max="100" value="80" id="micVolume" class="slider">
+              <span class="slider-value" id="micVolumeValue">80%</span>
+            </div>
+          </div>
+          <div class="volume-item mic-toggle">
+            <label>Mic Live</label>
+            <button class="toggle-btn" id="micToggle">
+              <span class="toggle-indicator"></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ADD CONTENT -->
+      <section class="add-content card">
+        <h2 class="card-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Agregar Contenido
+        </h2>
+        <div class="tabs">
+          <button class="tab active" data-tab="url">URL / Audio</button>
+          <button class="tab" data-tab="youtube">YouTube</button>
+          <button class="tab" data-tab="tts">Texto a Voz</button>
+          <button class="tab" data-tab="file">Subir Archivo</button>
+        </div>
+
+        <!-- URL TAB -->
+        <div class="tab-content active" id="tab-url">
+          <div class="input-group">
+            <input type="text" id="urlInput" placeholder="https://ejemplo.com/audio.mp3">
+            <button class="btn btn-primary" id="addUrlBtn">Agregar a Cola</button>
+          </div>
+          <button class="btn btn-secondary" id="playNowBtn">Reproducir Ahora</button>
+        </div>
+
+        <!-- YOUTUBE TAB -->
+        <div class="tab-content" id="tab-youtube">
+          <div class="input-group">
+            <input type="text" id="youtubeInput" placeholder="https://youtube.com/watch?v=...">
+            <button class="btn btn-primary" id="downloadYoutubeBtn">Descargar y Agregar</button>
+          </div>
+          <div class="youtube-info">
+            <small>Usa enlaces de YouTube para extraer audio. Puede tardar unos minutos.</small>
+          </div>
+        </div>
+
+        <!-- TTS TAB -->
+        <div class="tab-content" id="tab-tts">
+          <div class="input-group">
+            <select id="ttsVoice" class="select">
+              <option value="es-ES">Español (España)</option>
+              <option value="es-MX">Español (México)</option>
+              <option value="es">Español (Genérico)</option>
+              <option value="en-US">Inglés (EEUU)</option>
+              <option value="en">Inglés (Genérico)</option>
+            </select>
+          </div>
+          <div class="input-group">
+            <textarea id="ttsText" placeholder="Escribe el texto que quieres que se lea en la radio..." rows="3"></textarea>
+          </div>
+          <button class="btn btn-primary" id="generateTtsBtn">Generar y Agregar</button>
+        </div>
+
+        <!-- FILE TAB -->
+        <div class="tab-content" id="tab-file">
+          <div class="file-upload" id="fileDropZone">
+            <input type="file" id="fileInput" accept=".mp3,.aac,.ogg,.wav" hidden>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <p>Arrastra archivos aquí o <button class="link-btn" onclick="document.getElementById('fileInput').click()">selecciona</button></p>
+            <small>MP3, AAC, OGG, WAV</small>
+          </div>
+          <div id="uploadProgress" class="upload-progress hidden">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <span id="uploadStatus">Subiendo...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- QUEUE -->
+      <section class="queue-section card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="8" y1="6" x2="21" y2="6"/>
+              <line x1="8" y1="12" x2="21" y2="12"/>
+              <line x1="8" y1="18" x2="21" y2="18"/>
+              <line x1="3" y1="6" x2="3.01" y2="6"/>
+              <line x1="3" y1="12" x2="3.01" y2="12"/>
+              <line x1="3" y1="18" x2="3.01" y2="18"/>
+            </svg>
+            Cola de Reproducción
+          </h2>
+          <button class="btn btn-small" id="skipBtn">Saltar</button>
+        </div>
+        <div class="queue-list" id="queueList">
+          <div class="queue-empty">
+            <span>La cola está vacía</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SONGS LIBRARY -->
+      <section class="library-section card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18V5l12-2v13"/>
+              <circle cx="6" cy="18" r="3"/>
+              <circle cx="18" cy="16" r="3"/>
+            </svg>
+            Biblioteca de Música
+          </h2>
+          <button class="btn btn-small" id="refreshLibraryBtn">Actualizar</button>
+        </div>
+        <div class="songs-list" id="songsList">
+          <div class="songs-empty">
+            <span>Cargando...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PLAYLISTS -->
+      <section class="playlists-section card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="8" y1="6" x2="21" y2="6"/>
+              <line x1="8" y1="12" x2="21" y2="12"/>
+              <line x1="8" y1="18" x2="21" y2="18"/>
+              <path d="M3 6h.01"/>
+              <path d="M3 12h.01"/>
+              <path d="M3 18h.01"/>
+            </svg>
+            Playlists
+          </h2>
+        </div>
+        <div class="playlists-grid" id="playlistsGrid">
+          <div class="playlist-card">
+            <span class="playlist-name">Principal</span>
+            <button class="btn btn-small">Activar</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- TOAST NOTIFICATIONS -->
+    <div class="toast-container" id="toastContainer"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
