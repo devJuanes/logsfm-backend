@@ -10,9 +10,9 @@ set("log.level", 3)
 settings.init.allow_root := true
 
 # === SERVIDOR TELNET PARA CONTROL EXTERNO ===
-set("server.telnet", true)
-set("server.address", "127.0.0.1")
-set("server.port", 1234)
+settings.server.telnet := true
+settings.server.address := "127.0.0.1"
+settings.server.port := 1234
 
 # ============================================================
 # FUENTES DE AUDIO
