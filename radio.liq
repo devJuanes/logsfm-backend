@@ -34,8 +34,9 @@ tts_playlist = playlist(
 )
 
 # 4. MICROÍFONO EN VIVO (fallback a silencio)
+# Usar input.alsa en lugar de pulseaudio para mayor compatibilidad
 mic_source = fallback(track_sensitive=false, [
-  input.pulseaudio(device="default"),
+  input.alsa(device="default"),
   single("/radio/silence.mp3")
 ])
 
@@ -49,30 +50,32 @@ mic_volume = interactive.float("mic_volume", 0.8)
 mic_enabled = interactive.bool("mic_enabled", false)
 
 # ============================================================
-# MEZCLA DE FUENTES
+# MEZCLA DE FUENTES CON PRIORIDAD
 # ============================================================
 
-# Mezclar fuentes principales
+# Mezcla normal: playlist + tts a volumen controlado
 radio = add([
   amplify(music_volume, main_playlist),
-  amplify(0.9, dynamic_queue),
   amplify(0.95, tts_playlist)
 ])
 
-# Agregar mic si está habilitado (al mismo nivel, no antes de master)
-radio = add([
-  radio,
-  switch(track_sensitive=false, [
-    (mic_enabled, amplify(mic_volume, mic_source)),
-    ({true}, single("/radio/silence.mp3"))
-  ])
+# Si hay algo en la cola dinámica, tiene prioridad total
+radio = fallback(track_sensitive=false, [
+  dynamic_queue,
+  radio
+])
+
+# Si el micrófono está habilitado, reproducir por encima de todo
+radio = switch(track_sensitive=false, [
+  (mic_enabled, amplify(mic_volume, mic_source)),
+  ({true}, radio)
 ])
 
 # Aplicar volumen master
 radio = amplify(master_volume, radio)
 
 # ============================================================
-# FALLBACK FINAL
+# FALLBACK FINAL (si todo falla, reproducir fallback)
 # ============================================================
 
 radio = fallback(track_sensitive=false, [
