@@ -7,7 +7,6 @@
 # === CONFIGURACIÓN INICIAL ===
 set("log.file", "/radio/logs/liquidsoap.log")
 set("log.level", 3)
-set("init.daemon", true)
 set("init.daemon.pidfile", "/var/run/liquidsoap/liquidsoap.pid")
 
 # === SERVIDOR TELNET PARA CONTROL EXTERNO ===
