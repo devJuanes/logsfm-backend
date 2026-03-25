@@ -34,17 +34,11 @@ tts_playlist = playlist(
   "/radio/tts/"
 )
 
-# 4. MICROÍFONO EN VIVO
-def mic_or_silence() =
-  try
-    input.pulseaudio(device="default")
-  catch error do
-    print("Mic no disponible: #{error}")
-    single("/radio/silence.mp3")
-  end
-end
-
-mic_source = mic_or_silence()
+# 4. MICROÍFONO EN VIVO (fallback a silencio)
+mic_source = fallback(track_sensitive=false, [
+  input.pulseaudio(device="default"),
+  single("/radio/silence.mp3")
+])
 
 # ============================================================
 # CONTROL DE VOLUMEN INTERACTIVO (via telnet)
@@ -59,36 +53,27 @@ mic_enabled = interactive.bool("mic_enabled", false)
 # MEZCLA DE FUENTES
 # ============================================================
 
-# Aplicar volúmenes a cada fuente
-music_with_vol = amplify(music_volume, main_playlist)
-queue_with_vol = amplify(0.9, dynamic_queue)
-tts_with_vol = amplify(0.95, tts_playlist)
-mic_with_vol = amplify(mic_volume, mic_source)
-
-# Mezclar: música + queue + TTS (cada una con su peso usando amplify)
-radio_base = add([
-  amplify(0.7, music_with_vol),
-  amplify(0.8, queue_with_vol),
-  amplify(0.85, tts_with_vol)
+# Mezclar fuentes principales
+radio = add([
+  amplify(music_volume, main_playlist),
+  amplify(0.9, dynamic_queue),
+  amplify(0.95, tts_playlist)
 ])
 
-# Mic solo si está habilitado (sino silencio)
-mic_mixed = switch(track_sensitive=false, [
-  (mic_enabled, mic_with_vol),
-  ({true}, single("/radio/silence.mp3"))
+# Agregar mic si está habilitado (al mismo nivel, no antes de master)
+radio = add([
+  radio,
+  switch(track_sensitive=false, [
+    (mic_enabled, amplify(mic_volume, mic_source)),
+    ({true}, single("/radio/silence.mp3"))
+  ])
 ])
 
-# Mezclar todo con volumen master
-radio = amplify(master_volume, add([radio_base, mic_mixed]))
+# Aplicar volumen master
+radio = amplify(master_volume, radio)
 
 # ============================================================
-# CROSSFADE SUAVE
-# ============================================================
-
-radio = crossfade(fade_in=2.0, fade_out=2.0, radio)
-
-# ============================================================
-# FALLBACK FINAL (si todo falla)
+# FALLBACK FINAL
 # ============================================================
 
 radio = fallback(track_sensitive=false, [
