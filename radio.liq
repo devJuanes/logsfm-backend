@@ -100,19 +100,17 @@ radio = fallback(track_sensitive=false, [
 # OUTPUT ICECAST
 # ============================================================
 
-enable_output(
-  output.icecast(
-    %mp3(bitrate=128, samplerate=44100),
-    host="127.0.0.1",
-    port=8000,
-    password="source123",
-    mount="/radio.mp3",
-    name="Logs FM",
-    description="Radio online para programadores",
-    genre="Tech",
-    url="https://radio.logsfm.com",
-    radio
-  )
+output.icecast(
+  %mp3(bitrate=128, samplerate=44100),
+  host="127.0.0.1",
+  port=8000,
+  password="source123",
+  mount="/radio.mp3",
+  name="Logs FM",
+  description="Radio online para programadores",
+  genre="Tech",
+  url="https://radio.logsfm.com",
+  radio
 )
 
 # ============================================================
