@@ -25,7 +25,7 @@ main_playlist = playlist(
 )
 
 # 2. COLA DINÁMICA (URLs y archivos agregados via API)
-dynamic_queue = request.queue(id="dynamic_queue")
+dynamic_queue = request.queue()
 
 # 3. TTS (audios generados por espeak-ng)
 tts_playlist = playlist(

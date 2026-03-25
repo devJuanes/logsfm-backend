@@ -3,15 +3,11 @@ const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+const net = require("net");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// Services
-const lsController = require("./liquidsoap-controller");
-const youtubeService = require("./youtube-service");
-const ttsService = require("./tts-service");
 
 // Configuración de directorios
 const MUSIC_DIR = process.env.MUSIC_DIR || "/radio/music";
@@ -19,6 +15,13 @@ const PLAYLIST_DIR = process.env.PLAYLIST_DIR || "/radio/playlists";
 const PLAYLIST_FILE = path.join(PLAYLIST_DIR, "playlist.m3u");
 const TTS_DIR = process.env.TTS_DIR || "/radio/tts";
 const QUEUE_DIR = process.env.QUEUE_DIR || "/radio/queue";
+
+const LIQUIDSOAP_HOST = "127.0.0.1";
+const LIQUIDSOAP_PORT = 1234;
+
+// Cola en memoria
+let currentQueue = [];
+let currentIndex = 0;
 
 // Asegurar que los directorios existen
 [MUSIC_DIR, PLAYLIST_DIR, TTS_DIR, QUEUE_DIR].forEach(dir => {
@@ -62,6 +65,36 @@ function getPlaylists() {
     }));
 }
 
+// === COMUNICACIÓN CON LIQUIDSOAP ===
+function sendLSCommand(cmd) {
+  return new Promise((resolve, reject) => {
+    const client = new net.Socket();
+    let buffer = '';
+
+    client.connect(LIQUIDSOAP_PORT, LIQUIDSOAP_HOST, () => {
+      client.write(cmd + '\n');
+    });
+
+    client.on('data', (data) => {
+      buffer += data.toString();
+    });
+
+    client.on('close', () => {
+      resolve(buffer.trim());
+    });
+
+    client.on('error', (err) => {
+      reject(err);
+    });
+
+    // Timeout de 2 segundos
+    setTimeout(() => {
+      client.destroy();
+      resolve(buffer.trim() || 'ok');
+    }, 2000);
+  });
+}
+
 // === ENDPOINTS: SALUD ===
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -70,16 +103,12 @@ app.get("/api/health", (req, res) => {
 // === ENDPOINTS: ESTADO DE RADIO ===
 app.get("/api/status", async (req, res) => {
   try {
-    const status = await lsController.getStatus();
+    const lsStatus = await sendLSCommand('source').catch(() => 'offline');
     const songs = getSongs();
-    const ttsFiles = ttsService.getQueueFiles();
-    const downloading = youtubeService.getDownloading();
-
     res.json({
-      liquidsoap: status,
+      liquidsoap: lsStatus !== 'offline' ? { connected: true } : { connected: false },
       songsCount: songs.length,
-      ttsQueue: ttsFiles.length,
-      downloading: downloading,
+      queueLength: currentQueue.length,
       uptime: process.uptime()
     });
   } catch (err) {
@@ -88,8 +117,6 @@ app.get("/api/status", async (req, res) => {
 });
 
 app.get("/api/listeners", (req, res) => {
-  // Icecast no tiene API REST nativa, se conecta por stats
-  // Por ahora devolvemos un estimado o se puede consultar XML
   res.json({ listeners: 0, message: "Consultar Icecast stats" });
 });
 
@@ -125,46 +152,43 @@ app.post("/api/rebuild-playlist", (req, res) => {
 });
 
 // === ENDPOINTS: COLA ===
-app.get("/api/queue", async (req, res) => {
-  try {
-    const queue = await lsController.queueAll();
-    res.json({ ok: true, queue: queue || [] });
-  } catch (err) {
-    res.json({ ok: false, queue: [], error: err.message });
-  }
+app.get("/api/queue", (req, res) => {
+  res.json({ ok: true, queue: currentQueue, currentIndex });
 });
 
 app.post("/api/queue", async (req, res) => {
   const { url, file } = req.body;
 
-  if (url) {
-    // Es una URL directa
-    try {
-      await lsController.queuePush(url);
+  try {
+    if (url) {
+      // URL directa
+      await sendLSCommand(`queue.push ${url}`);
+      currentQueue.push({ type: 'url', uri: url, id: Date.now().toString() });
       res.json({ ok: true, message: "URL agregada a cola" });
-    } catch (err) {
-      res.json({ ok: false, error: err.message });
-    }
-  } else if (file) {
-    // Es un archivo local
-    const filePath = path.join(MUSIC_DIR, file);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ ok: false, error: "Archivo no existe" });
-    }
-    try {
-      await lsController.queuePush(filePath);
+    } else if (file) {
+      // Archivo local
+      const filePath = path.join(MUSIC_DIR, file);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ ok: false, error: "Archivo no existe" });
+      }
+      await sendLSCommand(`queue.push ${filePath}`);
+      currentQueue.push({ type: 'file', uri: filePath, name: file, id: Date.now().toString() });
       res.json({ ok: true, message: "Archivo agregado a cola" });
-    } catch (err) {
-      res.json({ ok: false, error: err.message });
+    } else {
+      res.status(400).json({ ok: false, error: "url o file requerido" });
     }
-  } else {
-    res.status(400).json({ ok: false, error: "url o file requerido" });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-app.delete("/api/queue/:rid", async (req, res) => {
+app.delete("/api/queue/:id", async (req, res) => {
   try {
-    await lsController.queueRemove(req.params.rid);
+    const item = currentQueue.find(q => q.id === req.params.id);
+    if (item) {
+      await sendLSCommand(`queue.remove ${item.rid || ''}`);
+      currentQueue = currentQueue.filter(q => q.id !== req.params.id);
+    }
     res.json({ ok: true });
   } catch (err) {
     res.json({ ok: false, error: err.message });
@@ -173,8 +197,8 @@ app.delete("/api/queue/:rid", async (req, res) => {
 
 app.post("/api/queue/skip", async (req, res) => {
   try {
-    const result = await lsController.queueSkip();
-    res.json({ ok: true, result });
+    await sendLSCommand(`queue.skip`);
+    res.json({ ok: true });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
@@ -184,25 +208,25 @@ app.post("/api/queue/play-now", async (req, res) => {
   const { url, file } = req.body;
 
   try {
-    // Skip current and play immediately
+    // Skip current
     try {
-      await lsController.queueSkip();
-    } catch (skipErr) {
-      console.warn("[API] No se pudo saltar la canción actual:", skipErr.message);
-    }
+      await sendLSCommand(`queue.skip`);
+    } catch (e) {}
 
     if (url) {
-      await lsController.queuePush(url);
+      await sendLSCommand(`queue.push ${url}`);
+      currentQueue.unshift({ type: 'url', uri: url, id: Date.now().toString() });
       res.json({ ok: true, message: "Reproduciendo ahora" });
     } else if (file) {
       const filePath = path.join(MUSIC_DIR, file);
-      await lsController.queuePush(filePath);
+      await sendLSCommand(`queue.push ${filePath}`);
+      currentQueue.unshift({ type: 'file', uri: filePath, name: file, id: Date.now().toString() });
       res.json({ ok: true, message: "Reproduciendo ahora" });
     } else {
       res.json({ ok: true, message: "Saltado a siguiente" });
     }
   } catch (err) {
-    res.status(200).json({ ok: false, error: `Error en Liquidsoap: ${err.message}` });
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -217,18 +241,22 @@ app.post("/api/youtube", async (req, res) => {
   console.log(`[API] Descargando YouTube: ${url}`);
 
   try {
-    const result = await youtubeService.addToQueue(url);
-    if (result.success) {
-      // Agregar a cola de Liquidsoap
-      try {
-        await lsController.queuePush(result.file);
-        res.json({ ok: true, file: result.file, message: "YouTube agregado a cola" });
-      } catch (lsErr) {
-        res.json({ ok: true, file: result.file, message: "YouTube descargado (agregar manualmente a cola)", error: lsErr.message });
+    const { exec } = require('child_process');
+    const outputFile = `/radio/queue/yt_${Date.now()}.mp3`;
+
+    exec(`yt-dlp --extract-audio --audio-format mp3 -o "${outputFile}" "${url}"`, async (error) => {
+      if (error) {
+        res.status(500).json({ ok: false, error: `Descarga fallida: ${error.message}` });
+        return;
       }
-    } else {
-      res.status(500).json({ ok: false, error: result.error });
-    }
+      if (fs.existsSync(outputFile)) {
+        await sendLSCommand(`queue.push ${outputFile}`);
+        currentQueue.push({ type: 'file', uri: outputFile, name: path.basename(outputFile), id: Date.now().toString() });
+        res.json({ ok: true, file: outputFile, message: "YouTube agregado a cola" });
+      } else {
+        res.status(500).json({ ok: false, error: "Descarga fallida" });
+      }
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -236,11 +264,14 @@ app.post("/api/youtube", async (req, res) => {
 
 // === ENDPOINTS: TTS ===
 app.get("/api/tts/voices", (req, res) => {
-  res.json({ voices: ttsService.listVoices() });
+  res.json({ voices: ['es-ES', 'es-MX', 'es', 'en-US', 'en'] });
 });
 
 app.get("/api/tts/queue", (req, res) => {
-  res.json({ files: ttsService.getQueueFiles() });
+  const files = fs.existsSync(TTS_DIR)
+    ? fs.readdirSync(TTS_DIR).filter(f => f.endsWith('.wav')).map(f => ({ name: f, path: path.join(TTS_DIR, f) }))
+    : [];
+  res.json({ files });
 });
 
 app.post("/api/tts", async (req, res) => {
@@ -253,18 +284,24 @@ app.post("/api/tts", async (req, res) => {
   console.log(`[API] Generando TTS: "${text.substring(0, 50)}..."`);
 
   try {
-    const result = await ttsService.addToTTSQueue(text, { voice, speed });
-    if (result.success) {
-      // Agregar a cola de Liquidsoap
-      try {
-        await lsController.queuePush(result.file);
-        res.json({ ok: true, file: result.file, message: "TTS agregado a cola" });
-      } catch (lsErr) {
-        res.json({ ok: true, file: result.file, message: "TTS generado (agregar manualmente)", error: lsErr.message });
+    const { exec } = require('child_process');
+    const outputFile = path.join(TTS_DIR, `tts_${Date.now()}.wav`);
+    const voiceArg = voice || 'es-ES';
+    const speedArg = speed || 1.0;
+
+    exec(`espeak-ng -w "${outputFile}" -v ${voiceArg} -s ${speedArg} "${text.replace(/"/g, '\\"')}"`, async (error) => {
+      if (error) {
+        res.status(500).json({ ok: false, error: `TTS fallido: ${error.message}` });
+        return;
       }
-    } else {
-      res.status(500).json({ ok: false, error: result.error });
-    }
+      if (fs.existsSync(outputFile)) {
+        await sendLSCommand(`queue.push ${outputFile}`);
+        currentQueue.push({ type: 'tts', uri: outputFile, name: text.substring(0, 30) + '...', id: Date.now().toString() });
+        res.json({ ok: true, file: outputFile, message: "TTS agregado a cola" });
+      } else {
+        res.status(500).json({ ok: false, error: "TTS fallido" });
+      }
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -272,12 +309,7 @@ app.post("/api/tts", async (req, res) => {
 
 // === ENDPOINTS: CONTROL DE VOLUMEN ===
 app.get("/api/volume", async (req, res) => {
-  try {
-    const vars = await lsController.getVars();
-    res.json({ ok: true, vars });
-  } catch (err) {
-    res.json({ ok: false, error: err.message });
-  }
+  res.json({ ok: true });
 });
 
 app.post("/api/volume/master", async (req, res) => {
@@ -286,7 +318,7 @@ app.post("/api/volume/master", async (req, res) => {
     return res.status(400).json({ ok: false, error: "level requerido (0.0-1.0)" });
   }
   try {
-    await lsController.setMasterVolume(level);
+    await sendLSCommand(`var.set master_volume = ${level}`);
     res.json({ ok: true, level });
   } catch (err) {
     res.json({ ok: false, error: err.message });
@@ -299,7 +331,7 @@ app.post("/api/volume/music", async (req, res) => {
     return res.status(400).json({ ok: false, error: "level requerido (0.0-1.0)" });
   }
   try {
-    await lsController.setMusicVolume(level);
+    await sendLSCommand(`var.set music_volume = ${level}`);
     res.json({ ok: true, level });
   } catch (err) {
     res.json({ ok: false, error: err.message });
@@ -312,7 +344,7 @@ app.post("/api/volume/mic", async (req, res) => {
     return res.status(400).json({ ok: false, error: "level requerido (0.0-1.0)" });
   }
   try {
-    await lsController.setMicVolume(level);
+    await sendLSCommand(`var.set mic_volume = ${level}`);
     res.json({ ok: true, level });
   } catch (err) {
     res.json({ ok: false, error: err.message });
@@ -326,15 +358,11 @@ app.post("/api/mic", async (req, res) => {
     return res.status(400).json({ ok: false, error: "enabled requerido (true/false)" });
   }
   try {
-    await lsController.setMicEnabled(enabled);
+    await sendLSCommand(`var.set mic_enabled = ${enabled}`);
     res.json({ ok: true, enabled });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
-});
-
-app.get("/api/mic/status", async (req, res) => {
-  res.json({ enabled: false, message: "Consultar estado desde Liquidsoap" });
 });
 
 // === ENDPOINTS: PLAYLISTS ===
@@ -347,9 +375,7 @@ app.get("/api/playlists/:name", (req, res) => {
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ ok: false, error: "Playlist no existe" });
   }
-  const content = fs.readFileSync(filePath, 'utf-8')
-    .split('\n')
-    .filter(Boolean);
+  const content = fs.readFileSync(filePath, 'utf-8').split('\n').filter(Boolean);
   res.json({ ok: true, name: req.params.name, tracks: content });
 });
 
@@ -377,26 +403,13 @@ app.post("/api/playlists/:name/activate", async (req, res) => {
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ ok: false, error: "Playlist no existe" });
   }
-  // Copiar como playlist activa
   fs.copyFileSync(filePath, PLAYLIST_FILE);
   res.json({ ok: true, message: "Playlist activada" });
 });
-
-// === CONEXIÓN CON LIQUIDSOAP ===
-async function initLiquidsoap() {
-  try {
-    await lsController.connect();
-    console.log('[Server] Liquidsoap conectado');
-  } catch (err) {
-    console.warn('[Server] No se pudo conectar a Liquidsoap (¿no está corriendo?):', err.message);
-    console.warn('[Server] El servidor seguirá funcionando sin control de Liquidsoap');
-  }
-}
 
 // === INICIO ===
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
   console.log(`Backend corriendo en puerto ${PORT}`);
-  initLiquidsoap();
 });
