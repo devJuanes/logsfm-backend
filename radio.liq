@@ -35,10 +35,7 @@ tts_playlist = playlist(
 )
 
 # 4. MICROÍFONO EN VIVO
-# Usamos input.external con ffmpeg para mayor compatibilidad
-# Fallback a silencio si no hay audio
 def mic_or_silence() =
-  # Intentar capturar de pulse o alsa, sino usar silencio
   try
     input.pulseaudio(device="default")
   catch error do
@@ -68,22 +65,21 @@ queue_with_vol = amplify(0.9, dynamic_queue)
 tts_with_vol = amplify(0.95, tts_playlist)
 mic_with_vol = amplify(mic_volume, mic_source)
 
-# Mezclar: música + queue + TTS
-# El micrófono se mezcla solo si está habilitado
+# Mezclar: música + queue + TTS (cada una con su peso usando amplify)
 radio_base = add([
-  (music_with_vol, 0.7),
-  (queue_with_vol, 0.8),
-  (tts_with_vol, 0.85)
+  amplify(0.7, music_with_vol),
+  amplify(0.8, queue_with_vol),
+  amplify(0.85, tts_with_vol)
 ])
 
-# Agregar mic si está habilitado
-radio_with_mic = switch(track_sensitive=false, [
+# Mic solo si está habilitado (sino silencio)
+mic_mixed = switch(track_sensitive=false, [
   (mic_enabled, mic_with_vol),
-  ({true}, mic_with_vol)
+  ({true}, single("/radio/silence.mp3"))
 ])
 
 # Mezclar todo con volumen master
-radio = amplify(master_volume, radio_with_mic)
+radio = amplify(master_volume, add([radio_base, mic_mixed]))
 
 # ============================================================
 # CROSSFADE SUAVE
