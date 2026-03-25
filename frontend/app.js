@@ -96,10 +96,26 @@ async function api(endpoint, options = {}) {
       },
       ...options
     });
-    return await res.json();
+
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (!res.ok && !data.error) {
+        data.error = `HTTP Error ${res.status}: ${res.statusText}`;
+      }
+      return data;
+    } else {
+      // Si no es JSON, es probablemente un error del servidor (HTML)
+      const text = await res.text();
+      console.error(`API Non-JSON Response: ${endpoint}`, text.substring(0, 200));
+      return { 
+        ok: false, 
+        error: res.ok ? 'Respuesta inesperada del servidor' : `Error del servidor (${res.status})` 
+      };
+    }
   } catch (err) {
-    console.error(`API Error: ${endpoint}`, err);
-    return { ok: false, error: err.message };
+    console.error(`API Network Error: ${endpoint}`, err);
+    return { ok: false, error: `Error de conexión: ${err.message}` };
   }
 }
 
@@ -116,10 +132,19 @@ async function apiUpload(endpoint, formData) {
       method: 'POST',
       body: formData
     });
-    return await res.json();
+
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return await res.json();
+    } else {
+      return { 
+        ok: false, 
+        error: res.ok ? 'Respuesta inesperada' : `Error del servidor (${res.status})` 
+      };
+    }
   } catch (err) {
     console.error(`Upload Error: ${endpoint}`, err);
-    return { ok: false, error: err.message };
+    return { ok: false, error: `Error de red: ${err.message}` };
   }
 }
 
@@ -669,7 +694,7 @@ async function init() {
 
   // Check status periodically
   await checkStatus();
-  setInterval(checkStatus, 30000);
+  setInterval(checkStatus, 5000); // Check every 5s for better real-time feel
 
   // Load initial data
   await Promise.all([

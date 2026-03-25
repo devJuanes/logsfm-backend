@@ -9,15 +9,28 @@ class LiquidsoapController {
     this.connected = false;
     this.commandQueue = [];
     this.pendingResponses = {};
+    this.lastConnectAttempt = 0;
+    this.connectCooldown = 5000; // 5 segundos entre reintentos
+    this.connectTimeout = 3000;   // 3 segundos de timeout para conectar
   }
 
   connect() {
-    return new Promise((resolve, reject) => {
-      if (this.connected && this.client) {
-        return resolve(true);
-      }
+    const now = Date.now();
+    if (this.connected && this.client) {
+      return Promise.resolve(true);
+    }
 
+    if (now - this.lastConnectAttempt < this.connectCooldown) {
+      return Promise.reject(new Error(`Reintento de conexión en enfriamiento (${Math.round((this.connectCooldown - (now - this.lastConnectAttempt)) / 1000)}s restantes)`));
+    }
+
+    this.lastConnectAttempt = now;
+
+    return new Promise((resolve, reject) => {
       this.client = new net.Socket();
+      
+      // Establecer timeout
+      this.client.setTimeout(this.connectTimeout);
 
       this.client.connect(LIQUIDSOAP_PORT, LIQUIDSOAP_HOST, () => {
         console.log(`[LS] Conectado a Liquidsoap ${LIQUIDSOAP_HOST}:${LIQUIDSOAP_PORT}`);
@@ -29,12 +42,23 @@ class LiquidsoapController {
       this.client.on('error', (err) => {
         console.error('[LS] Error de conexión:', err.message);
         this.connected = false;
+        this.client.destroy();
         reject(err);
       });
 
-      this.client.on('close', () => {
-        console.log('[LS] Conexión cerrada');
+      this.client.on('timeout', () => {
+        console.error('[LS] Timeout de conexión');
         this.connected = false;
+        this.client.destroy();
+        reject(new Error('Timeout conectando a Liquidsoap'));
+      });
+
+      this.client.on('close', () => {
+        if (this.connected) {
+          console.log('[LS] Conexión cerrada');
+        }
+        this.connected = false;
+        this.client = null;
       });
 
       let buffer = '';
@@ -52,16 +76,25 @@ class LiquidsoapController {
 
   handleResponse(line) {
     console.log('[LS] Response:', line);
+    // Liquidsoap telnet responde con "END" o similar para algunos comandos?
+    // Usualmente solo envía la línea. Por ahora el timeout de 100ms en sendCommand
+    // es lo que resuelve la promesa, pero podríamos mejorar esto.
   }
 
   sendCommand(cmd) {
-    return new Promise((resolve, reject) => {
-      if (!this.connected || !this.client) {
-        this.commandQueue.push({ cmd, resolve, reject });
-        return this.connect().then(() => this.sendCommand(cmd)).catch(reject);
-      }
+    if (!this.connected || !this.client) {
+      // Si no está conectado, intentamos conectar una vez y luego enviar.
+      // Pero no encolamos infinitamente si falla.
+      return this.connect()
+        .then(() => this.sendCommand(cmd))
+        .catch(err => {
+          // Si falla la conexión, rechazamos inmediatamente (limpia la cola si es necesario)
+          throw err;
+        });
+    }
 
-      const cmdId = Date.now().toString();
+    return new Promise((resolve, reject) => {
+      const cmdId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
       const fullCmd = cmd.includes('\n') ? cmd : `${cmd}\n`;
 
       this.pendingResponses[cmdId] = { resolve, reject };
@@ -71,12 +104,15 @@ class LiquidsoapController {
           delete this.pendingResponses[cmdId];
           reject(err);
         } else {
+          // Los comandos de telnet de Liquidsoap usualmente no necesitan esperar mucho
+          // pero algunos pueden tardar. Por ahora mantenemos el timeout pero
+          // lo hacemos un poco más robusto.
           setTimeout(() => {
             if (this.pendingResponses[cmdId]) {
               this.pendingResponses[cmdId].resolve('ok');
               delete this.pendingResponses[cmdId];
             }
-          }, 100);
+          }, 200);
         }
       });
     });

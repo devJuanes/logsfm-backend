@@ -173,8 +173,8 @@ app.delete("/api/queue/:rid", async (req, res) => {
 
 app.post("/api/queue/skip", async (req, res) => {
   try {
-    await lsController.queueSkip();
-    res.json({ ok: true });
+    const result = await lsController.queueSkip();
+    res.json({ ok: true, result });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
@@ -183,26 +183,26 @@ app.post("/api/queue/skip", async (req, res) => {
 app.post("/api/queue/play-now", async (req, res) => {
   const { url, file } = req.body;
 
-  // Skip current and play immediately
-  await lsController.queueSkip();
-
-  if (url) {
+  try {
+    // Skip current and play immediately
     try {
+      await lsController.queueSkip();
+    } catch (skipErr) {
+      console.warn("[API] No se pudo saltar la canción actual:", skipErr.message);
+    }
+
+    if (url) {
       await lsController.queuePush(url);
       res.json({ ok: true, message: "Reproduciendo ahora" });
-    } catch (err) {
-      res.json({ ok: false, error: err.message });
-    }
-  } else if (file) {
-    const filePath = path.join(MUSIC_DIR, file);
-    try {
+    } else if (file) {
+      const filePath = path.join(MUSIC_DIR, file);
       await lsController.queuePush(filePath);
       res.json({ ok: true, message: "Reproduciendo ahora" });
-    } catch (err) {
-      res.json({ ok: false, error: err.message });
+    } else {
+      res.json({ ok: true, message: "Saltado a siguiente" });
     }
-  } else {
-    res.json({ ok: true, message: "Saltado a siguiente" });
+  } catch (err) {
+    res.status(200).json({ ok: false, error: `Error en Liquidsoap: ${err.message}` });
   }
 });
 
