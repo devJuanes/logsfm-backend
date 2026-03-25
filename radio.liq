@@ -7,6 +7,7 @@
 # === CONFIGURACIÓN INICIAL ===
 set("log.file", "/radio/logs/liquidsoap.log")
 set("log.level", 3)
+settings.init.allow_root := true
 
 # === SERVIDOR TELNET PARA CONTROL EXTERNO ===
 set("server.telnet", true)
