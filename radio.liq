@@ -5,8 +5,8 @@
 # ============================================================
 
 # === CONFIGURACIÓN INICIAL ===
-set("log.file", "/radio/logs/liquidsoap.log")
-set("log.level", 3)
+settings.log.file := "/radio/logs/liquidsoap.log"
+settings.log.level := 3
 settings.init.allow_root := true
 
 # === SERVIDOR TELNET PARA CONTROL EXTERNO ===
@@ -33,21 +33,15 @@ tts_playlist = playlist(
   "/radio/tts/"
 )
 
-# 4. MICROÍFONO EN VIVO (fallback a silencio)
-# Usar input.alsa en lugar de pulseaudio para mayor compatibilidad
-mic_source = fallback(track_sensitive=false, [
-  input.alsa(device="default"),
-  single("/radio/silence.mp3")
-])
-
 # ============================================================
 # CONTROL DE VOLUMEN INTERACTIVO (via telnet)
 # ============================================================
 
 master_volume = interactive.float("master_volume", 1.0)
 music_volume = interactive.float("music_volume", 1.0)
-mic_volume = interactive.float("mic_volume", 0.8)
+# Nota: Micrófono deshabilitado en servidor - usar input.alsa en desktop
 mic_enabled = interactive.bool("mic_enabled", false)
+mic_volume = interactive.float("mic_volume", 0.8)
 
 # ============================================================
 # MEZCLA DE FUENTES CON PRIORIDAD
@@ -63,12 +57,6 @@ radio = add([
 radio = fallback(track_sensitive=false, [
   dynamic_queue,
   radio
-])
-
-# Si el micrófono está habilitado, reproducir por encima de todo
-radio = switch(track_sensitive=false, [
-  (mic_enabled, amplify(mic_volume, mic_source)),
-  ({true}, radio)
 ])
 
 # Aplicar volumen master
