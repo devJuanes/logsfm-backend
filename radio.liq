@@ -11,8 +11,8 @@ settings.init.allow_root := true
 
 # === SERVIDOR TELNET PARA CONTROL EXTERNO ===
 settings.server.telnet := true
-settings.server.address := "127.0.0.1"
-settings.server.port := 1234
+settings.server.telnet.bind_addr := "127.0.0.1"
+settings.server.telnet.port := 1234
 
 # ============================================================
 # FUENTES DE AUDIO
